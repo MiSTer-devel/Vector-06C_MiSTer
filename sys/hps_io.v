@@ -410,7 +410,7 @@ always@(posedge clk_sys) begin
 						begin
 							if(io_din[7:0]) begin
 								case(ioctl_index) 
-											0: addr <= 'h080000; // BOOT ROM
+											0: addr <= 'h050000; // BOOT ROM
 										'h01: addr <= 'h000100; // ROM file
 										'h41: addr <= 'h000100; // COM file
 										'h81: addr <= 'h000000; // C00 file
@@ -439,7 +439,7 @@ always@(posedge clk_sys) begin
 	if(ioctl_download) begin
 		old_force     <= 0;
 		ioctl_erasing <= 0;
-		erase_trigger <= (ioctl_index == 1);
+		erase_trigger <= (ioctl_index == 1) || (ioctl_index == 'h41);
 	end else begin
 
 		old_force <= ioctl_force_erase;

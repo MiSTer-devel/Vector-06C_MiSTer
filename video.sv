@@ -43,10 +43,12 @@ module video
 	input         forced_scandoubler,
 	input   [1:0] scale,
 
+	// Video memory
+	output [12:0] vaddr,
+	input	 [31:0] vdata,
+
 	// CPU bus
-	input	 [15:0] addr,
-	input	  [7:0] din,
-	input			  we,
+	input  [7:0]  din,
 	input         io_we,
 	
 	// Misc signals
@@ -57,6 +59,7 @@ module video
 );
 
 assign     retrace = VSync;
+assign     vaddr   = {hc[8:4], ~vcr[7:0]};
 
 reg  [9:0] hc;
 reg  [8:0] vc;
@@ -66,17 +69,6 @@ reg        HBlank, HSync;
 reg        VBlank, VSync;
 reg        viden, dot;
 reg  [7:0] idx0, idx1, idx2, idx3;
-wire[31:0] vram_o;
-
-dpram vram
-(
-	.clock(clk_sys),
-	.wraddress({addr[12:0], addr[14:13]}),
-	.data(din),
-	.wren(we & addr[15]),
-	.rdaddress({hc[8:4], ~vcr[7:0]}),
-	.q(vram_o)
-);
 
 reg mode512_lock;
 
@@ -118,7 +110,7 @@ always @(posedge clk_sys) begin
 			idx1 <= {idx1[6:0], border_d[5]};
 			idx2 <= {idx2[6:0], border_d[6]};
 			idx3 <= {idx3[6:0], border_d[7]};
-			if((hc[3:1] == 2) & ~hc[9] & ~vc[8]) {idx0, idx1, idx2, idx3} <= vram_o;
+			if((hc[3:1] == 2) & ~hc[9] & ~vc[8]) {idx0, idx1, idx2, idx3} <= vdata;
 
 			border_d <= {border_d[3:0], border};
 		end

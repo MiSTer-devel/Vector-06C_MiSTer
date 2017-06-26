@@ -93,6 +93,8 @@ assign VIDEO_ARY = status[8] ? 8'd9  : 8'd3;
 assign CLK_VIDEO = clk_sys;
 
 assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = 0;
+assign {SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 6'b111111;
+assign SDRAM_DQ = {16{1'bZ}};
 
 
 `include "build_id.v"
@@ -111,7 +113,7 @@ localparam CONF_STR =
 	"O5,CPU Type,i8080,Z80;",
 	"-;",
 	"T6,Cold Reboot;",
-	"V0,v2.51.",`BUILD_DATE
+	"V0,v2.60.",`BUILD_DATE
 };
 
 
@@ -176,7 +178,6 @@ pll pll
 	.refclk(CLK_50M),
 	.rst(0),
 	.outclk_0(clk_sys),
-	.outclk_1(SDRAM_CLK),
 	.locked(locked)
 );
 
@@ -386,17 +387,21 @@ T8080se cpu_z80
 
 ////////////////////   MEM   ////////////////////
 wire  [7:0] ram_o;
-sdram ram
-( 
-	.*,
-	.init(!locked),
-	.clk_sdram(clk_sys),
-	.dout(ram_o),
-	.din( (ioctl_download | ioctl_erasing) ? ioctl_data : cpu_o),
-	.addr((ioctl_download | ioctl_erasing) ? ioctl_addr : {read_rom, ed_page, addr}),
-	.we(  (ioctl_download | ioctl_erasing) ? ioctl_wr   : ~cpu_wr_n & ~io_write),
-	.rd(  (ioctl_download | ioctl_erasing) ? 1'b0       : cpu_rd),
-	.ready()
+wire [18:0] ram_addr = (ioctl_download | ioctl_erasing) ? ioctl_addr[18:0] : {read_rom ? 3'h5 : ed_page, addr};
+
+dpram #(8, 19, 393216, 32, 17, 98304) ram
+(
+	.clock(clk_sys),
+
+	.address_a({ram_addr[18:15], ram_addr[12:0], ram_addr[14:13]}),
+	.data_a((ioctl_download | ioctl_erasing) ? ioctl_data : cpu_o),
+	.wren_a((ioctl_download | ioctl_erasing) ? ioctl_wr   : ~cpu_wr_n & ~io_write),
+	.q_a(ram_o),
+
+	.address_b({1'b1, vaddr}),
+	.data_b(0),
+	.wren_b(0),
+	.q_b(vdata)
 );
 
 reg  [15:0] rom_size = 0;
@@ -498,23 +503,22 @@ wd1793 #(1) fdd
 
 
 ////////////////////   VIDEO   ////////////////////
-wire retrace;
+wire        retrace;
+wire [12:0] vaddr;
+wire [31:0] vdata;
 
 video video
 (
 	.*,
 	.ce_pix(CE_PIXEL),
 	.reset(reset & ~status[7]),
-	.addr(addr),
-	.din(cpu_o),
-	.we(~cpu_wr_n && ~io_write && !ed_page),
 	
 	.scroll(ppi1_a),
+	.din(cpu_o),
 	.io_we(pal_sel & io_wr),
 	.border(ppi1_b[3:0]),
 	.mode512(ppi1_b[4]),
-	.scale(status[2:1]),
-	.retrace(retrace)
+	.scale(status[2:1])
 );
 
 always @(posedge clk_sys) begin
@@ -674,5 +678,77 @@ end
 
 assign AUDIO_L = {psg_active ? {1'b0, psg_ch_a, 1'b0} + {2'b00, psg_ch_b} + {1'b0, legacy_audio, 7'd0} : {1'b0, legacy_audio, 8'd0} + {1'b0, covox, 1'b0}, 5'd0};
 assign AUDIO_R = {psg_active ? {1'b0, psg_ch_c, 1'b0} + {2'b00, psg_ch_b} + {1'b0, legacy_audio, 7'd0} : {1'b0, legacy_audio, 8'd0} + {1'b0, covox, 1'b0}, 5'd0};
+
+endmodule
+
+module dpram #(parameter DATAWIDTH_A=8, ADDRWIDTH_A=8, NUMWORDS_A=1<<ADDRWIDTH_A, DATAWIDTH_B=8, ADDRWIDTH_B=8, NUMWORDS_B=1<<ADDRWIDTH_B)
+(
+	input	                       clock,
+
+	input	     [ADDRWIDTH_A-1:0] address_a,
+	input	     [DATAWIDTH_A-1:0] data_a,
+	input	                       wren_a,
+	output reg [DATAWIDTH_A-1:0] q_a,
+
+	input	     [ADDRWIDTH_B-1:0] address_b,
+	input	     [DATAWIDTH_B-1:0] data_b,
+	input	                       wren_b,
+	output reg [DATAWIDTH_B-1:0] q_b
+);
+
+altsyncram	altsyncram_component
+(
+			.address_a (address_a),
+			.address_b (address_b),
+			.clock0 (clock),
+			.data_a (data_a),
+			.data_b (data_b),
+			.wren_a (wren_a),
+			.wren_b (wren_b),
+			.q_a (q_a),
+			.q_b (q_b),
+			.aclr0 (1'b0),
+			.aclr1 (1'b0),
+			.addressstall_a (1'b0),
+			.addressstall_b (1'b0),
+			.byteena_a (1'b1),
+			.byteena_b (1'b1),
+			.clock1 (1'b1),
+			.clocken0 (1'b1),
+			.clocken1 (1'b1),
+			.clocken2 (1'b1),
+			.clocken3 (1'b1),
+			.eccstatus (),
+			.rden_a (1'b1),
+			.rden_b (1'b1));
+defparam
+	altsyncram_component.wrcontrol_wraddress_reg_b = "CLOCK0",
+	altsyncram_component.address_reg_b = "CLOCK0",
+	altsyncram_component.indata_reg_b = "CLOCK0",
+	altsyncram_component.numwords_a = NUMWORDS_A,
+	altsyncram_component.numwords_b = NUMWORDS_B,
+	altsyncram_component.widthad_a = ADDRWIDTH_A,
+	altsyncram_component.widthad_b = ADDRWIDTH_B,
+	altsyncram_component.width_a = DATAWIDTH_A,
+	altsyncram_component.width_b = DATAWIDTH_B,
+	altsyncram_component.width_byteena_a = 1,
+	altsyncram_component.width_byteena_b = 1,
+
+	altsyncram_component.clock_enable_input_a = "BYPASS",
+	altsyncram_component.clock_enable_input_b = "BYPASS",
+	altsyncram_component.clock_enable_output_a = "BYPASS",
+	altsyncram_component.clock_enable_output_b = "BYPASS",
+	altsyncram_component.intended_device_family = "Cyclone V",
+	altsyncram_component.lpm_type = "altsyncram",
+	altsyncram_component.operation_mode = "BIDIR_DUAL_PORT",
+	altsyncram_component.outdata_aclr_a = "NONE",
+	altsyncram_component.outdata_aclr_b = "NONE",
+	altsyncram_component.outdata_reg_a = "UNREGISTERED",
+	altsyncram_component.outdata_reg_b = "UNREGISTERED",
+	altsyncram_component.power_up_uninitialized = "FALSE",
+	altsyncram_component.read_during_write_mode_mixed_ports = "DONT_CARE",
+	altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+	altsyncram_component.read_during_write_mode_port_b = "NEW_DATA_NO_NBE_READ";
+
 
 endmodule
