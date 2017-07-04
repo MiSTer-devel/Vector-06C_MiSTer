@@ -102,8 +102,10 @@ localparam CONF_STR =
 {
 	"VECTOR06;;",
 	"-;",
-	"F0,ROMCOMC00EDD;",
-	"S3,FDD,Mount Floppy;",
+	"F,ROMCOMC00EDD;",
+	"-;",
+	"S0,FDD,Mount Disk A;",
+	"S1,FDD,Mount Disk B;",
 	"-;",
 	"O8,Aspect ratio,4:3,16:9;",
 	"O12,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%;",
@@ -113,7 +115,8 @@ localparam CONF_STR =
 	"O5,CPU Type,i8080,Z80;",
 	"-;",
 	"T6,Cold Reboot;",
-	"V0,v2.60.",`BUILD_DATE
+	"J,Fire 1,Fire 2;",
+	"V0,v2.70.",`BUILD_DATE
 };
 
 
@@ -134,30 +137,32 @@ wire        ioctl_erasing;
 wire  [7:0] ioctl_index;
 
 wire [31:0] sd_lba;
-wire        sd_rd;
-wire        sd_wr;
+wire  [1:0] sd_rd;
+wire  [1:0] sd_wr;
 wire        sd_ack;
 wire  [8:0] sd_buff_addr;
 wire  [7:0] sd_buff_dout;
 wire  [7:0] sd_buff_din;
 wire        sd_buff_wr;
-wire        img_mounted;
+wire  [1:0] img_mounted;
 wire [63:0] img_size;
+wire        img_readonly;
 
-hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io 
+hps_io #(.STRLEN($size(CONF_STR)>>3), .VDNUM(2)) hps_io 
 (
 	.*,
 
 	.conf_str(CONF_STR),
-	.sd_conf(0),
 
 	.joystick_0(joyA),
 	.joystick_1(joyB),
 
 	.ioctl_force_erase(cold_reset),
 	.ioctl_dout(ioctl_data),
+	.ioctl_wait(0),
 
 	// unused
+	.sd_conf(0),
 	.sd_ack_conf(),
 
 	.joystick_analog_0(),
@@ -226,7 +231,11 @@ reg rom_enable;
 always @(posedge clk_sys) begin
 	reg reset_flg  = 1;
 	int reset_hold = 0;
-	int init_reset = 90000000;
+	reg old_rst = 0;
+	reg sys_ready = 0;
+	
+	old_rst <= status[0];
+	if(old_rst & ~status[0]) sys_ready <= 1;
 
 	if(ioctl_erasing | ioctl_download) begin
 		reset_flg <= 1;
@@ -241,20 +250,19 @@ always @(posedge clk_sys) begin
 		end else if(reset_hold) reset_hold <= reset_hold - 1;
 		else {cold_reset,reset} <= 0;
 
-		// initial reset
-		if(init_reset) begin
-			init_reset <= init_reset - 1;
-			reset_flg  <= 1;
-			rom_enable <= 1;
-			cold_reset <= 1;
-		end
-		
 		// reset by button or key
 		if(status[6] | buttons[1] | reset_key[0] | (fdd_busy & rom_enable)) begin
 			rom_enable <= ~reset_key[2]; // disable boot rom if Alt is held.
 			reset_flg  <= 1;
 
 			cold_reset <= status[6];
+		end
+
+		// initial reset
+		if(~sys_ready) begin
+			reset_flg  <= 1;
+			rom_enable <= 1;
+			cold_reset <= 1;
 		end
 	end
 
@@ -315,8 +323,8 @@ always_comb begin
 		8'b00001111: begin pal_sel  =1; io_data = joyB_o;  end
 		8'b00010000: begin edsk_sel =1;                    end
 		8'b0001010X: begin psg_sel  =1; io_data = psg_o;   end
-		8'b000110XX: begin fdd_sel  =fdd_ready; if(fdd_ready) io_data = fdd_o; end
-		8'b000111XX: begin fdd_sel  =fdd_ready;            end
+		8'b000110XX: begin fdd_sel  =1; io_data = fdd_o;   end
+		8'b000111XX: begin fdd_sel  =1;                    end
 		    default: ;
 	endcase
 end
@@ -446,44 +454,66 @@ end
 
 
 /////////////////////   FDD   /////////////////////
-wire  [7:0] fdd_o;
 reg         fdd_drive;
-reg         fdd_ready;
 reg         fdd_side;
-wire        fdd_busy;
+wire        fdd_busy  = fdd_drive ? fdd2_busy  : fdd1_busy;
+wire        fdd_ready = fdd_drive ? fdd2_ready : fdd1_ready;
+wire  [7:0] fdd_o = fdd_ready ? (fdd_drive ? fdd2_o : fdd1_o) : 8'd0;
+
+reg fdd_num = 0;
+always @(posedge clk_sys) begin
+	if(sd_rd[1]|sd_wr[1]) fdd_num <= 1;
+	if(sd_rd[0]|sd_wr[0]) fdd_num <= 0;
+end
+
+assign sd_buff_din = fdd_num ? fdd2_buf_dout : fdd1_buf_dout;
+assign sd_lba      = fdd_num ? fdd2_lba      : fdd1_lba;
 
 always @(posedge clk_sys) begin
-	reg old_mounted, old_wr;
-
-	old_mounted <= img_mounted;
-	if(cold_reset) fdd_ready <= 0;
-		else if(~old_mounted & img_mounted) fdd_ready <= 1;
+	reg old_wr;
 
 	old_wr <= io_wr;
 	if(~old_wr & io_wr & fdd_sel & addr[2]) {fdd_side, fdd_drive} <= {~cpu_o[2], cpu_o[0]};
+
+	if(cold_reset) fdd_drive <= 0;
 end
 
-wd1793 #(1) fdd
+//FDD1
+wire  [7:0] fdd1_o;
+reg         fdd1_ready;
+wire        fdd1_busy;
+wire  [7:0] fdd1_buf_dout;
+wire [31:0] fdd1_lba;
+
+always @(posedge clk_sys) begin
+	reg old_mounted;
+
+	old_mounted <= img_mounted[0];
+	if(cold_reset) fdd1_ready <= 0;
+		else if(~old_mounted & img_mounted[0]) fdd1_ready <= 1;
+end
+
+wd1793 #(1) fdd1
 (
 	.clk_sys(clk_sys),
 	.ce(ce_f1),
 	.reset(reset),
-	.io_en(fdd_sel & ~addr[2]),
+	.io_en(fdd_sel & fdd1_ready & ~fdd_drive & ~addr[2]),
 	.rd(io_rd),
 	.wr(io_wr),
 	.addr(~addr[1:0]),
 	.din(cpu_o),
-	.dout(fdd_o),
+	.dout(fdd1_o),
 
-	.img_mounted(img_mounted),
-	.img_size(img_size[31:0]),
-	.sd_lba(sd_lba),
-	.sd_rd(sd_rd),
-	.sd_wr(sd_wr),
+	.img_mounted(img_mounted[0]),
+	.img_size(img_size[19:0]),
+	.sd_lba(fdd1_lba),
+	.sd_rd(sd_rd[0]),
+	.sd_wr(sd_wr[0]),
 	.sd_ack(sd_ack),
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
-	.sd_buff_din(sd_buff_din),
+	.sd_buff_din(fdd1_buf_dout),
 	.sd_buff_wr(sd_buff_wr),
 
 	.wp(0),
@@ -491,8 +521,8 @@ wd1793 #(1) fdd
 	.size_code(3),
 	.layout(0),
 	.side(fdd_side),
-	.ready(!fdd_drive & fdd_ready),
-	.prepare(fdd_busy),
+	.ready(~fdd_drive & fdd1_ready),
+	.prepare(fdd1_busy),
 
 	.input_active(0),
 	.input_addr(0),
@@ -501,6 +531,59 @@ wd1793 #(1) fdd
 	.buff_din(0)
 );
 
+
+//FDD2
+wire  [7:0] fdd2_o;
+reg         fdd2_ready;
+wire        fdd2_busy;
+wire  [7:0] fdd2_buf_dout;
+wire [31:0] fdd2_lba;
+
+always @(posedge clk_sys) begin
+	reg old_mounted;
+
+	old_mounted <= img_mounted[1];
+	if(cold_reset) fdd2_ready <= 0;
+		else if(~old_mounted & img_mounted[1]) fdd2_ready <= 1;
+end
+
+wd1793 #(1) fdd2
+(
+	.clk_sys(clk_sys),
+	.ce(ce_f1),
+	.reset(reset),
+	.io_en(fdd_sel & fdd2_ready & fdd_drive & ~addr[2]),
+	.rd(io_rd),
+	.wr(io_wr),
+	.addr(~addr[1:0]),
+	.din(cpu_o),
+	.dout(fdd2_o),
+
+	.img_mounted(img_mounted[1]),
+	.img_size(img_size[19:0]),
+	.sd_lba(fdd2_lba),
+	.sd_rd(sd_rd[1]),
+	.sd_wr(sd_wr[1]),
+	.sd_ack(sd_ack),
+	.sd_buff_addr(sd_buff_addr),
+	.sd_buff_dout(sd_buff_dout),
+	.sd_buff_din(fdd2_buf_dout),
+	.sd_buff_wr(sd_buff_wr),
+
+	.wp(0),
+
+	.size_code(3),
+	.layout(0),
+	.side(fdd_side),
+	.ready(fdd_drive & fdd2_ready),
+	.prepare(fdd2_busy),
+
+	.input_active(0),
+	.input_addr(0),
+	.input_data(0),
+	.input_wr(0),
+	.buff_din(0)
+);
 
 ////////////////////   VIDEO   ////////////////////
 wire        retrace;
