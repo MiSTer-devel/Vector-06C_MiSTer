@@ -116,7 +116,7 @@ localparam CONF_STR =
 	"-;",
 	"T6,Cold Reboot;",
 	"J,Fire 1,Fire 2;",
-	"V0,v2.70.",`BUILD_DATE
+	"V0,v2.71.",`BUILD_DATE
 };
 
 
@@ -126,8 +126,8 @@ wire        ps2_kbd_clk, ps2_kbd_data;
 
 wire [31:0] status;
 wire  [1:0] buttons;
-wire  [7:0] joyA;
-wire  [7:0] joyB;
+wire [15:0] joyA;
+wire [15:0] joyB;
 
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
@@ -665,7 +665,7 @@ k580vv55 ppi1
 
 
 /////////////////   Joystick Zoo   /////////////////
-wire [7:0] joyPU   = joyA | joyB;
+wire [7:0] joyPU   = joyA[7:0] | joyB[7:0];
 wire [7:0] joyPU_o = {joyPU[3], joyPU[0], joyPU[2], joyPU[1], joyPU[4], joyPU[5], 2'b00};
 
 wire [7:0] joyA_o  = ~{joyA[5], joyA[4], 2'b00, joyA[2], joyA[3], joyA[1], joyA[0]};
