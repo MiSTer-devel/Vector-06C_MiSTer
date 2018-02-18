@@ -1,7 +1,7 @@
 // ====================================================================
 //                Vector 06C FPGA REPLICA
 //
-//            Copyright (C) 2016-2017 Sorgelig
+//            Copyright (C) 2016-2018 Sorgelig
 //
 // This core is distributed under modified BSD license. 
 // For complete licensing information see LICENSE.TXT.
@@ -22,7 +22,7 @@ module emu
 	input         RESET,
 
 	//Must be passed to hps_io module
-	inout  [37:0] HPS_BUS,
+	inout  [43:0] HPS_BUS,
 
 	//Base video clock. Usually equals to CLK_SYS.
 	output        CLK_VIDEO,
@@ -44,7 +44,7 @@ module emu
 
 	output        LED_USER,  // 1 - ON, 0 - OFF.
 
-	// b[1]: 0 - LED status is system status ORed with b[0]
+	// b[1]: 0 - LED status is system status OR'd with b[0]
 	//       1 - LED status is controled solely by b[0]
 	// hint: supply 2'b00 to let the system control the LED.
 	output  [1:0] LED_POWER,
@@ -52,8 +52,16 @@ module emu
 
 	output [15:0] AUDIO_L,
 	output [15:0] AUDIO_R,
-	output        AUDIO_S, // 1 - signed audio samples, 0 - unsigned
+	output        AUDIO_S,   // 1 - signed audio samples, 0 - unsigned
+	output  [1:0] AUDIO_MIX, // 0 - no mix, 1 - 25%, 2 - 50%, 3 - 100% (mono)
 	input         TAPE_IN,
+
+	// SD-SPI
+	output        SD_SCK,
+	output        SD_MOSI,
+	input         SD_MISO,
+	output        SD_CS,
+	input         SD_CD,
 
 	//High latency DDR3 RAM interface
 	//Use for non-critical time purposes
@@ -82,20 +90,20 @@ module emu
 	output        SDRAM_nWE
 );
 
-assign AUDIO_S   = 0;
+assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
+assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = 0;
+assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
-assign LED_USER  = ioctl_download | ioctl_erasing;
+assign AUDIO_S   = 0;
+assign AUDIO_MIX = status[10:9];
+
+assign LED_USER  = ioctl_download | erasing;
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
 
 assign VIDEO_ARX = status[8] ? 8'd16 : 8'd4;
 assign VIDEO_ARY = status[8] ? 8'd9  : 8'd3;
 assign CLK_VIDEO = clk_sys;
-
-assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = 0;
-assign {SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 6'b111111;
-assign SDRAM_DQ = {16{1'bZ}};
-
 
 `include "build_id.v"
 localparam CONF_STR =
@@ -110,19 +118,20 @@ localparam CONF_STR =
 	"O8,Aspect ratio,4:3,16:9;",
 	"O12,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%;",
 	"O7,Reset Palette,Yes,No;",
+	"O9A,Stereo mix,none,25%,50%,100%;",
 	"-;",
 	"O4,CPU Speed,3MHz,6MHz;",
 	"O5,CPU Type,i8080,Z80;",
 	"-;",
-	"T6,Cold Reboot;",
+	"R6,Cold Reboot;",
 	"J,Fire 1,Fire 2;",
-	"V0,v2.71.",`BUILD_DATE
+	"V0,v2.72.",`BUILD_DATE
 };
 
 
 ///////////////   MIST ARM I/O   /////////////////
 wire        forced_scandoubler;
-wire        ps2_kbd_clk, ps2_kbd_data;
+wire [10:0] ps2_key;
 
 wire [31:0] status;
 wire  [1:0] buttons;
@@ -131,9 +140,9 @@ wire [15:0] joyB;
 
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
+wire [24:0] ioctl_addr_orig;
 wire  [7:0] ioctl_data;
 wire        ioctl_download;
-wire        ioctl_erasing;
 wire  [7:0] ioctl_index;
 
 wire [31:0] sd_lba;
@@ -157,23 +166,29 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .VDNUM(2)) hps_io
 	.joystick_0(joyA),
 	.joystick_1(joyB),
 
-	.ioctl_force_erase(cold_reset),
 	.ioctl_dout(ioctl_data),
+	.ioctl_addr(ioctl_addr_orig),
 	.ioctl_wait(0),
 
 	// unused
 	.sd_conf(0),
 	.sd_ack_conf(),
-
-	.joystick_analog_0(),
-	.joystick_analog_1(),
-
+	.RTC(),
+	.TIMESTAMP(),
+	.ps2_kbd_clk_out(),
+	.ps2_kbd_data_out(),
+	.ps2_kbd_clk_in(0),
+	.ps2_kbd_data_in(0),
+	.ps2_mouse(),
+	.ps2_mouse_clk_out(),
+	.ps2_mouse_data_out(),
+	.ps2_mouse_clk_in(0),
+	.ps2_mouse_data_in(0),
 	.ps2_kbd_led_use(0),
 	.ps2_kbd_led_status(0),
-	.ps2_mouse_clk(),
-	.ps2_mouse_data()
+	.joystick_analog_0(),
+	.joystick_analog_1()
 );
-
 
 ////////////////////   CLOCKS   ///////////////////
 wire locked;
@@ -224,7 +239,7 @@ end
 
 
 ////////////////////   RESET   ////////////////////
-reg cold_reset;
+reg cold_reset = 0;
 reg reset;
 reg rom_enable;
 
@@ -232,12 +247,16 @@ always @(posedge clk_sys) begin
 	reg reset_flg  = 1;
 	int reset_hold = 0;
 	reg old_rst = 0;
-	reg sys_ready = 0;
 	
+	// initial reset
 	old_rst <= status[0];
-	if(old_rst & ~status[0]) sys_ready <= 1;
+	if(old_rst & ~status[0]) begin
+		reset_flg  <= 1;
+		rom_enable <= 1;
+		cold_reset <= 1;
+	end
 
-	if(ioctl_erasing | ioctl_download) begin
+	if(erasing | ioctl_download) begin
 		reset_flg <= 1;
 		reset     <= 1;
 		if(ioctl_download) rom_enable <= ~((ioctl_index[4:0]==1) && (ioctl_index[7:6]<3));
@@ -246,7 +265,7 @@ always @(posedge clk_sys) begin
 			reset_flg  <= 0;
 			cpu_type   <= status[5];
 			reset      <= 1;
-			reset_hold <= 1000;
+			reset_hold <= 10000;
 		end else if(reset_hold) reset_hold <= reset_hold - 1;
 		else {cold_reset,reset} <= 0;
 
@@ -256,13 +275,6 @@ always @(posedge clk_sys) begin
 			reset_flg  <= 1;
 
 			cold_reset <= status[6];
-		end
-
-		// initial reset
-		if(~sys_ready) begin
-			reset_flg  <= 1;
-			rom_enable <= 1;
-			cold_reset <= 1;
 		end
 	end
 
@@ -395,15 +407,15 @@ T8080se cpu_z80
 
 ////////////////////   MEM   ////////////////////
 wire  [7:0] ram_o;
-wire [18:0] ram_addr = (ioctl_download | ioctl_erasing) ? ioctl_addr[18:0] : {read_rom ? 3'h5 : ed_page, addr};
+wire [18:0] ram_addr = ioctl_download ? ioctl_addr[18:0] : erasing ? erase_addr[18:0] : {read_rom ? 3'h5 : ed_page, addr};
 
 dpram #(8, 19, 393216, 32, 17, 98304) ram
 (
 	.clock(clk_sys),
 
 	.address_a({ram_addr[18:15], ram_addr[12:0], ram_addr[14:13]}),
-	.data_a((ioctl_download | ioctl_erasing) ? ioctl_data : cpu_o),
-	.wren_a((ioctl_download | ioctl_erasing) ? ioctl_wr   : ~cpu_wr_n & ~io_write),
+	.data_a(ioctl_download ? ioctl_data : erasing ? 8'd0     : cpu_o),
+	.wren_a(ioctl_download ? ioctl_wr   : erasing ? erase_wr : ~cpu_wr_n & ~io_write),
 	.q_a(ram_o),
 
 	.address_b({1'b1, vaddr}),
@@ -418,7 +430,7 @@ always @(posedge clk_sys) begin
 	reg old_download;
 
 	old_download <= ioctl_download;
-	if(~ioctl_download & old_download & !ioctl_index) rom_size <= ioctl_addr[15:0] + 1'b1;
+	if(~ioctl_download & old_download & !ioctl_index) rom_size <= ioctl_addr[15:0];
 end
 
 wire [7:0] rom_o;
@@ -490,7 +502,7 @@ always @(posedge clk_sys) begin
 
 	old_mounted <= img_mounted[0];
 	if(cold_reset) fdd1_ready <= 0;
-		else if(~old_mounted & img_mounted[0]) fdd1_ready <= 1;
+		else if(~old_mounted & img_mounted[0]) fdd1_ready <= |img_size;
 end
 
 wd1793 #(1) fdd1
@@ -544,7 +556,7 @@ always @(posedge clk_sys) begin
 
 	old_mounted <= img_mounted[1];
 	if(cold_reset) fdd2_ready <= 0;
-		else if(~old_mounted & img_mounted[1]) fdd2_ready <= 1;
+		else if(~old_mounted & img_mounted[1]) fdd2_ready <= |img_size;
 end
 
 wd1793 #(1) fdd2
@@ -633,8 +645,7 @@ keyboard kbd
 (
 	.clk(clk_sys), 
 	.reset(cold_reset),
-	.ps2_clk(ps2_kbd_clk),
-	.ps2_dat(ps2_kbd_data),
+	.ps2_key(ps2_key),
 	.addr(~ppi1_a), 
 	.odata(kbd_o), 
 	.shift(kbd_shift),
@@ -762,9 +773,82 @@ end
 assign AUDIO_L = {psg_active ? {1'b0, psg_ch_a, 1'b0} + {2'b00, psg_ch_b} + {1'b0, legacy_audio, 7'd0} : {1'b0, legacy_audio, 8'd0} + {1'b0, covox, 1'b0}, 5'd0};
 assign AUDIO_R = {psg_active ? {1'b0, psg_ch_c, 1'b0} + {2'b00, psg_ch_b} + {1'b0, legacy_audio, 7'd0} : {1'b0, legacy_audio, 8'd0} + {1'b0, covox, 1'b0}, 5'd0};
 
+/////////////////////////////////////////////////
+
+wire       force_erase = cold_reset;
+reg        erasing = 0;
+reg        erase_wr;
+reg [24:0] erase_addr;
+
+always_comb begin
+	case(ioctl_index) 
+				0: ioctl_addr = 25'h050000 + ioctl_addr_orig; // BOOT ROM
+			'h01: ioctl_addr = 25'h000100 + ioctl_addr_orig; // ROM file
+			'h41: ioctl_addr = 25'h000100 + ioctl_addr_orig; // COM file
+			'h81: ioctl_addr = 25'h000000 + ioctl_addr_orig; // C00 file
+			'hC1: ioctl_addr = 25'h010000 + ioctl_addr_orig; // EDD file
+		default: ioctl_addr = ioctl_addr_orig; // ??
+	endcase
+end
+
+reg  [24:0] erase_mask;
+wire [24:0] next_erase = (erase_addr + 1'd1) & erase_mask;
+
+always@(posedge clk_sys) begin
+	reg [15:0] cmd;
+	reg        has_cmd;
+	reg [24:0] addr;
+	reg        wr;
+
+	reg        old_force = 0;
+	reg  [5:0] erase_clk_div;
+	reg [24:0] end_addr;
+	reg        erase_trigger = 0;
+
+	erase_wr <= wr;
+	wr <= 0;
+
+	if(ioctl_download) begin
+		old_force <= 0;
+		erasing   <= 0;
+		erase_trigger <= (ioctl_index == 1) || (ioctl_index == 'h41);
+	end else begin
+	
+		old_force <= force_erase;
+
+		// start erasing
+		if(erase_trigger) begin
+			erase_trigger <= 0;
+			erase_mask    <= 'hFFFF;
+			end_addr      <= 'h0100;
+			erase_addr    <= ioctl_addr;
+			erase_clk_div <= 1;
+			erasing       <= 1;
+		end else if(~old_force & force_erase) begin
+			erase_trigger <= 0;
+			erase_addr    <= 'h1FFFFFF;
+			erase_mask    <= 'h1FFFFFF;
+			end_addr      <= 'h0050000;
+			erase_clk_div <= 1;
+			erasing       <= 1;
+		end else if(erasing) begin
+			erase_clk_div <= erase_clk_div + 1'd1;
+			if(!erase_clk_div) begin
+				if(next_erase == end_addr) erasing <= 0;
+				else begin
+					erase_addr <= next_erase;
+					wr <= 1;
+				end
+			end
+		end
+	end
+end
+
 endmodule
 
-module dpram #(parameter DATAWIDTH_A=8, ADDRWIDTH_A=8, NUMWORDS_A=1<<ADDRWIDTH_A, DATAWIDTH_B=8, ADDRWIDTH_B=8, NUMWORDS_B=1<<ADDRWIDTH_B)
+module dpram #(parameter DATAWIDTH_A=8, ADDRWIDTH_A=8, NUMWORDS_A=1<<ADDRWIDTH_A,
+                         DATAWIDTH_B=8, ADDRWIDTH_B=8, NUMWORDS_B=1<<ADDRWIDTH_B,
+                         MEM_INIT_FILE="" )
 (
 	input	                       clock,
 
@@ -817,6 +901,7 @@ defparam
 	altsyncram_component.width_byteena_a = 1,
 	altsyncram_component.width_byteena_b = 1,
 
+	altsyncram_component.init_file = MEM_INIT_FILE, 
 	altsyncram_component.clock_enable_input_a = "BYPASS",
 	altsyncram_component.clock_enable_input_b = "BYPASS",
 	altsyncram_component.clock_enable_output_a = "BYPASS",
