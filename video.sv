@@ -40,8 +40,8 @@ module video
 	output        VGA_DE,
 	
 	// TV/VGA
-	input         forced_scandoubler,
-	input   [1:0] scale,
+	input         scandoubler,
+	input         hq2x,
 
 	// Video memory
 	output [12:0] vaddr,
@@ -154,17 +154,13 @@ wire [3:0] R = {4{viden}} & {palette[color_idx][2:0], palette[color_idx][2]};
 wire [3:0] G = {4{viden}} & {palette[color_idx][5:3], palette[color_idx][5]};
 wire [3:0] B = {4{viden}} & {palette[color_idx][7:6], palette[color_idx][7:6]};
 
-wire hq2x = (scale == 1);
-
 video_mixer #(.LINE_LENGTH(768), .HALF_DEPTH(1)) video_mixer
 (
 	.*,
 	.ce_pix(ce_12mp & (mode512_lock | ~dot)),
 	.ce_pix_out(ce_pix),
 
-	.scanlines({scale == 3, scale == 2}),
-	.scandoubler(scale || forced_scandoubler),
-
+	.scanlines(0),
 	.mono(0)
 );
 

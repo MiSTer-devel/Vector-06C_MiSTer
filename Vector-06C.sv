@@ -1,7 +1,7 @@
 // ====================================================================
 //                Vector 06C FPGA REPLICA
 //
-//            Copyright (C) 2016-2018 Sorgelig
+//            Copyright (C) 2016-2019 Sorgelig
 //
 // This core is distributed under modified BSD license. 
 // For complete licensing information see LICENSE.TXT.
@@ -41,6 +41,8 @@ module emu
 	output        VGA_HS,
 	output        VGA_VS,
 	output        VGA_DE,    // = ~(VBlank | HBlank)
+	output        VGA_F1,
+	output  [1:0] VGA_SL,
 
 	output        LED_USER,  // 1 - ON, 0 - OFF.
 
@@ -87,9 +89,28 @@ module emu
 	output        SDRAM_nCS,
 	output        SDRAM_nCAS,
 	output        SDRAM_nRAS,
-	output        SDRAM_nWE
+	output        SDRAM_nWE,
+
+	input         UART_CTS,
+	output        UART_RTS,
+	input         UART_RXD,
+	output        UART_TXD,
+	output        UART_DTR,
+	input         UART_DSR,
+
+	// Open-drain User port.
+	// 0 - D+/RX
+	// 1 - D-/TX
+	// 2..5 - USR1..USR4
+	// Set USER_OUT to 1 to read from USER_IN.
+	input   [5:0] USER_IN,
+	output  [5:0] USER_OUT,
+
+	input         OSD_STATUS
 );
 
+assign USER_OUT = '1;
+assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
 assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
@@ -125,7 +146,7 @@ localparam CONF_STR =
 	"-;",
 	"R6,Cold Reboot;",
 	"J,Fire 1,Fire 2;",
-	"V0,v2.72.",`BUILD_DATE
+	"V,v",`BUILD_DATE
 };
 
 
@@ -159,35 +180,36 @@ wire        img_readonly;
 
 hps_io #(.STRLEN($size(CONF_STR)>>3), .VDNUM(2)) hps_io 
 (
-	.*,
+	.clk_sys(clk_sys),
 
+	.HPS_BUS(HPS_BUS),
 	.conf_str(CONF_STR),
-
+	
+	.ps2_key(ps2_key),
 	.joystick_0(joyA),
 	.joystick_1(joyB),
 
-	.ioctl_dout(ioctl_data),
-	.ioctl_addr(ioctl_addr_orig),
-	.ioctl_wait(0),
+	.buttons(buttons),
+	.forced_scandoubler(forced_scandoubler),
+	.status(status),
 
-	// unused
-	.sd_conf(0),
-	.sd_ack_conf(),
-	.RTC(),
-	.TIMESTAMP(),
-	.ps2_kbd_clk_out(),
-	.ps2_kbd_data_out(),
-	.ps2_kbd_clk_in(0),
-	.ps2_kbd_data_in(0),
-	.ps2_mouse(),
-	.ps2_mouse_clk_out(),
-	.ps2_mouse_data_out(),
-	.ps2_mouse_clk_in(0),
-	.ps2_mouse_data_in(0),
-	.ps2_kbd_led_use(0),
-	.ps2_kbd_led_status(0),
-	.joystick_analog_0(),
-	.joystick_analog_1()
+	.sd_lba(sd_lba),
+	.sd_rd(sd_rd),
+	.sd_wr(sd_wr),
+	.sd_ack(sd_ack),
+	.sd_buff_addr(sd_buff_addr),
+	.sd_buff_dout(sd_buff_dout),
+	.sd_buff_din(sd_buff_din),
+	.sd_buff_wr(sd_buff_wr),
+	.img_mounted(img_mounted),
+	.img_size(img_size),
+	.img_readonly(img_readonly),
+
+	.ioctl_wr(ioctl_wr),
+	.ioctl_addr(ioctl_addr_orig),
+	.ioctl_dout(ioctl_data),
+	.ioctl_download(ioctl_download),
+	.ioctl_index(ioctl_index)  
 );
 
 ////////////////////   CLOCKS   ///////////////////
@@ -601,6 +623,7 @@ wd1793 #(1) fdd2
 wire        retrace;
 wire [12:0] vaddr;
 wire [31:0] vdata;
+wire  [1:0] scale = status[2:1];
 
 video video
 (
@@ -613,8 +636,13 @@ video video
 	.io_we(pal_sel & io_wr),
 	.border(ppi1_b[3:0]),
 	.mode512(ppi1_b[4]),
-	.scale(status[2:1])
+	.hq2x(scale == 1),
+	.scandoubler(scale || forced_scandoubler)
 );
+
+assign VGA_SL = scale ? scale - 1'd1 : 2'd0;
+assign VGA_F1 = 0;
+
 
 always @(posedge clk_sys) begin
 	reg old_retrace;
