@@ -82,11 +82,9 @@ always @(posedge clk_sys) begin
 			if (vc == 311) vc <= 9'd0;
 				else vc <= vc + 1'd1;
 			if(vc == 271) begin
-				VSync <= 1;
 				mode512_lock <= (mode512_acc | ~hq2x);
 				mode512_acc  <= 0;
 			end
-			if(vc == 281) VSync <= 0;
 		end else begin
 			hc <= hc + 1'd1;
 		end
@@ -96,7 +94,11 @@ always @(posedge clk_sys) begin
 			HBlank <= 1;
 			if(vc == 267) VBlank <= 1;
 		end
-		if(hc == 597) HSync <= 1;
+		if(hc == 597) begin
+			HSync <= 1;
+			if(vc == 271) VSync <= 1;
+			if(vc == 281) VSync <= 0;
+		end
 		if(hc == 653) HSync <= 0;
 		if(hc == 723) begin
 			HBlank <= 0;
