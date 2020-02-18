@@ -3,7 +3,7 @@
 Precise K580VM80A (i8080) Verilog model by Vslav is used in this project. Some modules from [Vector06cc](https://github.com/svofski/vector06cc) and [Bashkiria 2M](http://bashkiria-2m.narod.ru/index/fpga/0-12) were used.
 
 ### Features:
-- Fully functional Vector 06C with presice timings
+- Fully functional Vector 06C with precise timings
 - 3MHz(original) and 6MHz(turbo) speeds for CPU.
 - 320KB RAM (including 256KB of Quasi-disk)
 - Following file formats are supported: 
