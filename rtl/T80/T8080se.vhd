@@ -68,7 +68,6 @@
 library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.numeric_std.all;
-use work.T80_Pack.all;
 
 entity T8080se is
 	generic(
@@ -127,7 +126,7 @@ begin
 	DO(6) <= IORQ and not Write when TState = "001" else DO_i(6);                    -- INP
 	DO(7) <= not IORQ and not Write and IntCycle_n when TState = "001" else DO_i(7); -- MEMR
 
-	u0 : T80
+	u0 : work.T80
 		generic map(
 			Mode => Mode,
 			IOWait => 0)

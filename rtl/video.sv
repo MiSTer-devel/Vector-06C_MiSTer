@@ -42,6 +42,7 @@ module video
 	// TV/VGA
 	input         scandoubler,
 	input         hq2x,
+	inout  [21:0] gamma_bus,
 
 	// Video memory
 	output [12:0] vaddr,
@@ -156,9 +157,11 @@ wire [3:0] R = {4{viden}} & {palette[color_idx][2:0], palette[color_idx][2]};
 wire [3:0] G = {4{viden}} & {palette[color_idx][5:3], palette[color_idx][5]};
 wire [3:0] B = {4{viden}} & {palette[color_idx][7:6], palette[color_idx][7:6]};
 
-video_mixer #(.LINE_LENGTH(768), .HALF_DEPTH(1)) video_mixer
+video_mixer #(.LINE_LENGTH(768), .HALF_DEPTH(1), .GAMMA(1)) video_mixer
 (
 	.*,
+
+	.clk_vid(clk_sys),
 	.ce_pix(ce_12mp & (mode512_lock | ~dot)),
 	.ce_pix_out(ce_pix),
 

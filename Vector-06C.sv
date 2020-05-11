@@ -159,9 +159,10 @@ localparam CONF_STR =
 };
 
 
-///////////////   MIST ARM I/O   /////////////////
+///////////////   HPS I/O   /////////////////
 wire        forced_scandoubler;
 wire [10:0] ps2_key;
+wire [21:0] gamma_bus;
 
 wire [31:0] status;
 wire  [1:0] buttons;
@@ -197,6 +198,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .VDNUM(2)) hps_io
 	.ps2_key(ps2_key),
 	.joystick_0(joyA),
 	.joystick_1(joyB),
+	.gamma_bus(gamma_bus),
 
 	.buttons(buttons),
 	.forced_scandoubler(forced_scandoubler),

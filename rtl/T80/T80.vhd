@@ -82,7 +82,6 @@
 library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.numeric_std.all;
-use work.T80_Pack.all;
 
 entity T80 is
 	generic(
@@ -256,7 +255,7 @@ architecture rtl of T80 is
 
 begin
 
-	mcode : T80_MCode
+	mcode : work.T80_MCode
 		generic map(
 			Mode   => Mode,
 			Flag_C => Flag_C,
@@ -322,7 +321,7 @@ begin
 			NoRead      => NoRead,
 			Write       => Write);
 
-	alu : T80_ALU
+	alu : work.T80_ALU
 		generic map(
 			Mode   => Mode,
 			Flag_C => Flag_C,
@@ -849,7 +848,7 @@ begin
 		end if;
 	end process;
 
-	Regs : T80_Reg
+	Regs : work.T80_Reg
 		port map(
 			Clk => CLK_n,
 			CEN => ClkEn,
