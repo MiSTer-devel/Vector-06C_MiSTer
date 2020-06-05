@@ -59,7 +59,6 @@ module video
 	output reg    retrace
 );
 
-assign     retrace = VSync;
 assign     vaddr   = {hc[8:4], ~vcr[7:0]};
 
 reg  [9:0] hc;
@@ -83,9 +82,11 @@ always @(posedge clk_sys) begin
 			if (vc == 311) vc <= 9'd0;
 				else vc <= vc + 1'd1;
 			if(vc == 271) begin
+				retrace <= 1;
 				mode512_lock <= (mode512_acc | ~hq2x);
 				mode512_acc  <= 0;
 			end
+			if(vc == 281) retrace <= 0;
 		end else begin
 			hc <= hc + 1'd1;
 		end
