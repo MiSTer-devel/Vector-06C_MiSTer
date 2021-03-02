@@ -29,9 +29,9 @@ module video
 	input         clk_sys,
 	input         ce_12mp,
 	input         ce_12mn,
-	output        ce_pix,
 
 	// Video outputs
+	output        CE_PIXEL,
 	output  [7:0] VGA_R,
 	output  [7:0] VGA_G,
 	output  [7:0] VGA_B,
@@ -83,7 +83,7 @@ always @(posedge clk_sys) begin
 				else vc <= vc + 1'd1;
 			if(vc == 271) begin
 				retrace <= 1;
-				mode512_lock <= (mode512_acc | ~hq2x);
+				mode512_lock <= mode512_acc;
 				mode512_acc  <= 0;
 			end
 			if(vc == 281) retrace <= 0;
@@ -161,13 +161,8 @@ wire [3:0] B = {4{viden}} & {palette[color_idx][7:6], palette[color_idx][7:6]};
 video_mixer #(.LINE_LENGTH(768), .HALF_DEPTH(1), .GAMMA(1)) video_mixer
 (
 	.*,
-
-	.clk_vid(clk_sys),
-	.ce_pix(ce_12mp & (mode512_lock | ~dot)),
-	.ce_pix_out(ce_pix),
-
-	.scanlines(0),
-	.mono(0)
+	.CLK_VIDEO(clk_sys),
+	.ce_pix(ce_12mp & (mode512_lock | ~dot))
 );
 
 endmodule

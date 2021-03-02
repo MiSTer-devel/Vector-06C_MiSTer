@@ -32,8 +32,9 @@ module emu
 	output        CE_PIXEL,
 
 	//Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
-	output [11:0] VIDEO_ARX,
-	output [11:0] VIDEO_ARY,
+	//if VIDEO_ARX[12] or VIDEO_ARY[12] is set then [11:0] contains scaled size instead of aspect ratio.
+	output [12:0] VIDEO_ARX,
+	output [12:0] VIDEO_ARY,
 
 	output  [7:0] VGA_R,
 	output  [7:0] VGA_G,
@@ -44,6 +45,9 @@ module emu
 	output        VGA_F1,
 	output [1:0]  VGA_SL,
 	output        VGA_SCALER, // Force VGA scaler
+
+	input  [11:0] HDMI_WIDTH,
+	input  [11:0] HDMI_HEIGHT,
 
 `ifdef USE_FB
 	// Use framebuffer in DDRAM (USE_FB=1 in qsf)
@@ -179,9 +183,23 @@ assign BUTTONS   = 0;
 assign VGA_SCALER= 0;
 
 wire [1:0] ar = status[12:11];
+wire       vcrop_en = status[15];
+reg        en270p;
+always @(posedge CLK_VIDEO) begin
+	en270p <= ((HDMI_WIDTH == 1920) && (HDMI_HEIGHT == 1080) && !forced_scandoubler && !scale);
+end
 
-assign VIDEO_ARX = (!ar) ? 12'd4 : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
+wire vga_de;
+video_freak video_freak
+(
+	.*,
+	.VGA_DE_IN(vga_de),
+	.ARX((!ar) ? 12'd4 : (ar - 1'd1)),
+	.ARY((!ar) ? 12'd3 : 12'd0),
+	.CROP_SIZE((en270p & vcrop_en) ? 10'd270 : 10'd0),
+	.CROP_OFF(0),
+	.SCALE(status[14:13])
+);
 
 assign CLK_VIDEO = clk_sys;
 
@@ -198,6 +216,10 @@ localparam CONF_STR =
 	"OBC,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O12,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%;",
 	"O7,Reset Palette,Yes,No;",
+	"-;",
+	"d0OF,Vertical Crop,Disabled,270p(5x);",
+	"ODE,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
+	"-;",
 	"O9A,Stereo mix,none,25%,50%,100%;",
 	"-;",
 	"O4,CPU Speed,3MHz,6MHz;",
@@ -253,6 +275,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .VDNUM(2)) hps_io
 	.buttons(buttons),
 	.forced_scandoubler(forced_scandoubler),
 	.status(status),
+	.status_menumask({en270p}), 
 
 	.sd_lba(sd_lba),
 	.sd_rd(sd_rd),
@@ -689,7 +712,6 @@ wire  [1:0] scale = status[2:1];
 video video
 (
 	.*,
-	.ce_pix(CE_PIXEL),
 	.reset(reset & ~status[7]),
 	
 	.scroll(ppi1_a),
@@ -698,7 +720,8 @@ video video
 	.border(ppi1_b[3:0]),
 	.mode512(ppi1_b[4]),
 	.hq2x(scale == 1),
-	.scandoubler(scale || forced_scandoubler)
+	.scandoubler(scale || forced_scandoubler),
+	.VGA_DE(vga_de)
 );
 
 assign VGA_SL = scale ? scale - 1'd1 : 2'd0;
