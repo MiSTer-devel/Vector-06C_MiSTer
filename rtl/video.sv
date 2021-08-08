@@ -162,6 +162,8 @@ video_mixer #(.LINE_LENGTH(768), .HALF_DEPTH(1), .GAMMA(1)) video_mixer
 (
 	.*,
 	.CLK_VIDEO(clk_sys),
+	.HDMI_FREEZE(0),
+	.freeze_sync(),
 	.ce_pix(ce_12mp & (mode512_lock | ~dot))
 );
 
